@@ -1,0 +1,82 @@
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.svm import SVC
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import ExtraTreesClassifier
+from imblearn.over_sampling import SMOTE
+from sklearn.naive_bayes import GaussianNB
+
+# Load your data
+data = pd.read_excel('Data.xlsx')  # Replace with your file path
+
+# Prepare the data
+X = data.drop('Bankrupt?', axis=1)
+y = data['Bankrupt?']
+
+# Define split ratios with more data for testing than training
+splits = [(0.8, 0.2), (0.7, 0.3), (0.6, 0.4), (0.5, 0.5)]
+
+# Define models
+models = {
+    "Logistic Regression": LogisticRegression(max_iter=1000),
+    "Random Forest": RandomForestClassifier(),
+    "Gradient Boosting": GradientBoostingClassifier(),
+    "Support Vector Machine": SVC(),
+    "K-Nearest Neighbors": KNeighborsClassifier(),
+    "Decision Tree": DecisionTreeClassifier(),
+    "Naive Bayes": GaussianNB(),
+    "Extra Trees": ExtraTreesClassifier()
+}
+
+# Storing results
+all_results = {}
+
+# Function to train and evaluate models
+def train_and_evaluate(X_train, X_test, y_train, y_test, model):
+    # Apply SMOTE for balancing the dataset
+    sm = SMOTE(random_state=42)
+    X_train_res, y_train_res = sm.fit_resample(X_train, y_train)
+
+    if isinstance(model, KNeighborsClassifier):
+        # For KNeighborsClassifier, use the 'weights' parameter instead of 'class_weight'
+        model.set_params(weights='distance')
+        model.fit(X_train_res, y_train_res)
+    elif isinstance(model, GradientBoostingClassifier):
+        # For GradientBoostingClassifier, use the 'sample_weight' parameter instead of 'class_weight'
+        sample_weights = [1 if label == 0 else 5 for label in y_train_res]
+        model.fit(X_train_res, y_train_res, sample_weight=sample_weights)
+    elif isinstance(model, GaussianNB):
+        # For GaussianNB, use class_prior to emulate class_weight
+        class_counts = pd.Series(y_train_res).value_counts().sort_index()
+        class_prior = class_counts / class_counts.sum()
+        model.set_params(priors=class_prior.values)
+        model.fit(X_train_res, y_train_res)
+    else:
+        # For other classifiers, use class_weight
+        model.set_params(class_weight={0: 1, 1: 5})
+        model.fit(X_train_res, y_train_res)
+
+    predictions = model.predict(X_test)
+    report = classification_report(y_test, predictions, target_names=['Default', 'Not Default'])
+    return report
+
+# Perform train-test split and evaluate models
+for train_size, test_size in splits:
+    X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=train_size, test_size=test_size, random_state=42, stratify=y)
+    split_name = f"Train {int(train_size*100)}% / Test {int(test_size*100)}%"
+    all_results[split_name] = {}
+    
+    for model_name, model in models.items():
+        report = train_and_evaluate(X_train, X_test, y_train, y_test, model)
+        all_results[split_name][model_name] = report
+
+# Output results
+for split, results in all_results.items():
+    print(f"Results for {split}:")
+    for model_name, report in results.items():
+        print(f"Model: {model_name}\n{report}\n")
+
